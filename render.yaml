@@ -1,0 +1,23 @@
+# FIT — Web Service no Render (API + webhook global UAZAPI)
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: fit-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: ENV
+        value: production
+      - key: WEBHOOK_VALIDATE_QUERY
+        value: "true"
+      # Preencher no painel Render (Environment):
+      # MISTRAL_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+      # UAZAPI_BASE_URL, UAZAPI_ADMIN_TOKEN, WEBHOOK_SECRET
+      # PUBLIC_API_URL=https://fit-api.onrender.com  (URL do próprio serviço)
+      # DEFAULT_GYM_ID, UAZAPI_SEND_TEXT_PATH=/send/text

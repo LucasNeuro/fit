@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+backend/.env
+frontend/.env
+
+# Node (frontend futuro)
+node_modules/
+frontend/.env
+frontend/dist/
+frontend/.output/
+
+# IDE / OS
+.idea/
+# .vscode/  — mantemos tasks.json do AgentOS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Agno session DB (local)
+backend/tmp/
