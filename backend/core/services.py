@@ -9,9 +9,81 @@ from core.supabase_client import get_supabase
 
 
 def get_gym_by_id(gym_id: str) -> dict[str, Any] | None:
+    if not gym_id:
+        return None
     sb = get_supabase()
     res = sb.table("gyms").select("*").eq("id", gym_id).maybe_single().execute()
     return res.data if res else None
+
+
+def get_gym_by_slug(slug: str) -> dict[str, Any] | None:
+    if not slug:
+        return None
+    sb = get_supabase()
+    res = sb.table("gyms").select("*").eq("slug", slug).maybe_single().execute()
+    return res.data if res else None
+
+
+def resolve_gym_id(preferred_id: str | None = None, slug: str | None = None) -> str:
+    """
+    Resolve gym_id para AgentOS/dev: tenta UUID do .env, depois slug (piloto).
+    """
+    from core.config import get_settings
+
+    settings = get_settings()
+    candidates: list[str] = []
+    if preferred_id:
+        candidates.append(preferred_id.strip())
+    if settings.default_gym_id:
+        candidates.append(settings.default_gym_id.strip())
+
+    seen: set[str] = set()
+    for gid in candidates:
+        if not gid or gid in seen:
+            continue
+        seen.add(gid)
+        if get_gym_by_id(gid):
+            return gid
+
+    fallback_slug = (slug or settings.default_gym_slug or "piloto").strip()
+    gym = get_gym_by_slug(fallback_slug)
+    if gym:
+        return gym["id"]
+
+    raise RuntimeError(
+        f"Academia não encontrada no Supabase. "
+        f"Rode seed_piloto_completo.sql e defina DEFAULT_GYM_ID ou DEFAULT_GYM_SLUG={fallback_slug!r}."
+    )
+
+
+def gym_data_summary(gym_id: str) -> dict[str, int]:
+    """Contagens rápidas para validar seed no startup."""
+    sb = get_supabase()
+    plans = (
+        sb.table("plans")
+        .select("id", count="exact")
+        .eq("gym_id", gym_id)
+        .eq("active", True)
+        .execute()
+    )
+    slots = (
+        sb.table("class_slots")
+        .select("id", count="exact")
+        .eq("gym_id", gym_id)
+        .gte("starts_at", datetime.now(timezone.utc).isoformat())
+        .execute()
+    )
+    members = (
+        sb.table("members")
+        .select("id", count="exact")
+        .eq("gym_id", gym_id)
+        .execute()
+    )
+    return {
+        "planos": plans.count or 0,
+        "horarios_futuros": slots.count or 0,
+        "membros": members.count or 0,
+    }
 
 
 def resolve_gym_from_uazapi_instance(
