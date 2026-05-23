@@ -225,7 +225,7 @@ def criar_reserva(run_context: RunContext, slot_id: str) -> str:
     return (
         f"OK — reserva GRAVADA no banco. "
         f"booking_id={result['booking_id']} | {result['modality']} | {quando} (BR) | "
-        f"member_id={member_id}"
+        f"vagas={result.get('booked_count')}/{result.get('capacity')} | member_id={member_id}"
     )
 
 

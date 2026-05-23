@@ -388,7 +388,15 @@ def list_available_slots(
     if day:
         slots = [s for s in slots if _slot_local_date(s["starts_at"]) == day]
 
-    available = [s for s in slots if s["booked_count"] < s["capacity"]]
+    available = []
+    for s in slots:
+        active = count_confirmed_bookings(s["id"])
+        if active != s.get("booked_count", 0):
+            sync_slot_booked_count(s["id"])
+            s["booked_count"] = active
+        if active < s["capacity"]:
+            s["booked_count"] = active
+            available.append(s)
     return available[:limit]
 
 
@@ -402,6 +410,27 @@ def list_plans(gym_id: str) -> list[dict[str, Any]]:
         .execute()
     )
     return res.data or []
+
+
+def count_confirmed_bookings(slot_id: str) -> int:
+    """Fonte da verdade — reservas ativas no slot."""
+    sb = get_supabase()
+    res = (
+        sb.table("bookings")
+        .select("id", count="exact")
+        .eq("slot_id", slot_id)
+        .neq("status", "cancelled")
+        .execute()
+    )
+    return res.count or 0
+
+
+def sync_slot_booked_count(slot_id: str) -> int:
+    """Alinha class_slots.booked_count com bookings (anti overbooking)."""
+    count = count_confirmed_bookings(slot_id)
+    sb = get_supabase()
+    sb.table("class_slots").update({"booked_count": count}).eq("id", slot_id).execute()
+    return count
 
 
 def create_booking(gym_id: str, member_id: str, slot_id: str) -> dict[str, Any]:
@@ -420,11 +449,27 @@ def create_booking(gym_id: str, member_id: str, slot_id: str) -> dict[str, Any]:
         .maybe_single()
         .execute()
     )
-    slot = slot_res.data
+    slot = slot_res.data if slot_res else None
     if not slot:
         return {"ok": False, "error": "Horário não encontrado."}
-    if slot["booked_count"] >= slot["capacity"]:
+
+    active = count_confirmed_bookings(slot_id)
+    if active >= slot["capacity"]:
+        sync_slot_booked_count(slot_id)
         return {"ok": False, "error": "Este horário está lotado."}
+
+    # Evita reserva duplicada do mesmo membro no mesmo slot
+    dup = (
+        sb.table("bookings")
+        .select("id")
+        .eq("slot_id", slot_id)
+        .eq("member_id", member_id)
+        .neq("status", "cancelled")
+        .limit(1)
+        .execute()
+    )
+    if dup.data:
+        return {"ok": False, "error": "Você já tem reserva neste horário."}
 
     try:
         booking = (
@@ -445,15 +490,15 @@ def create_booking(gym_id: str, member_id: str, slot_id: str) -> dict[str, Any]:
     if not booking.data:
         return {"ok": False, "error": "Reserva não foi gravada (resposta vazia do banco)."}
 
-    sb.table("class_slots").update({"booked_count": slot["booked_count"] + 1}).eq(
-        "id", slot_id
-    ).execute()
+    new_count = sync_slot_booked_count(slot_id)
 
     return {
         "ok": True,
         "booking_id": booking.data[0]["id"],
         "starts_at": slot["starts_at"],
         "modality": slot["modality"],
+        "booked_count": new_count,
+        "capacity": slot["capacity"],
     }
 
 
