@@ -10,7 +10,7 @@ from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.models.mistral import MistralChat
 
-from agents.tools import FIT_TOOLS, sql_tools_for_agent
+from agents.tools import FIT_TOOLS, MESSAGING_TOOLS, sql_tools_for_agent
 from core.config import get_settings
 from core import services
 from core.ssl_fix import mistral_client_params
@@ -64,6 +64,7 @@ def _get_agent_db() -> SqliteDb:
 
 def _build_agent_tools() -> list[Any]:
     tools: list[Any] = list(FIT_TOOLS)
+    tools.extend(MESSAGING_TOOLS)
     tools.extend(sql_tools_for_agent())
     return tools
 
@@ -75,6 +76,7 @@ def create_recepcionista_agent(
     *,
     agent_id: str = "fit-recepcionista",
     session_id: str | None = None,
+    instance_token: str | None = None,
 ) -> Agent:
     """Cria instância Agno configurada para uma conversa."""
     settings = get_settings()
@@ -127,6 +129,8 @@ def create_recepcionista_agent(
             "gym_id": gym_id,
             "member_id": member_id,
             "wa_chatid": wa_chatid,
+            "instance_token": (instance_token or "").strip(),
+            "uazapi_messages_sent": False,
         },
         instructions=instructions,
         tools=_build_agent_tools(),

@@ -108,6 +108,7 @@ class UazapiAdminClient:
         """POST /globalwebhook — configurar webhook global no servidor."""
         payload = {
             "url": url,
+            "enabled": True,
             "events": events or ["messages", "connection"],
             "excludeMessages": exclude_messages or ["wasSentByApi", "isGroupYes"],
             "addUrlEvents": False,

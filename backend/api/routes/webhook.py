@@ -66,13 +66,36 @@ async def _process_message(
 
     log_message(gym_id, wa_chatid, "in", text, member_id=member_id, raw=raw)
 
-    reply = run_recepcionista(gym_id, member_id, wa_chatid, text)
+    uazapi = get_uazapi(instance_token)
+    try:
+        await uazapi.send_presence_async(wa_chatid, "composing", delay=25000)
+    except Exception:
+        pass
+
+    result = run_recepcionista(
+        gym_id,
+        member_id,
+        wa_chatid,
+        text,
+        instance_token=instance_token,
+    )
+    reply = result.text
 
     log_message(gym_id, wa_chatid, "out", reply, member_id=member_id)
 
-    uazapi = get_uazapi(instance_token)
+    if result.skip_auto_send:
+        log_uazapi(
+            action="envio via tools (sem texto duplicado)",
+            chat_id=wa_chatid,
+            ok=True,
+        )
+        return
+
+    if not reply.strip():
+        return
+
     try:
-        await uazapi.send_text(wa_chatid, reply)
+        await uazapi.send_text_async(wa_chatid, reply, readchat=True)
         log_uazapi(action="mensagem enviada", chat_id=wa_chatid, preview=reply, ok=True)
     except Exception as exc:
         logger.error("Falha ao enviar WhatsApp: %s", exc)

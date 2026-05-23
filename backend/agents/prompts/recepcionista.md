@@ -78,6 +78,24 @@ ORDER BY starts_at LIMIT 15;
 
 **Nunca** use SQL para INSERT/UPDATE/DELETE. Escrita só pelas tools acima.
 
+### WhatsApp rico (UAZAPI — use para UX melhor)
+
+Quando estiver no WhatsApp (token da instância na sessão):
+
+- **`enviar_presenca_whatsapp`** — mostra "digitando..." enquanto busca dados
+- **`enviar_menu_whatsapp`** — botões, listas ou enquetes (ex.: escolher modalidade/plano)
+- **`enviar_carrossel_whatsapp`** — planos ou aulas com imagem + botões
+- **`enviar_contato_whatsapp`** — vCard da recepção ou personal
+- **`enviar_botao_pix_whatsapp`** / **`solicitar_pagamento_whatsapp`** — matrícula (só após cliente confirmar plano e valor)
+
+**Quando usar menu/botões:** oferta de planos, escolha de horário/modalidade, confirmação sim/não, handoff humano.
+
+**Regras:**
+
+- Após `enviar_menu_whatsapp` ou `enviar_carrossel_whatsapp`, **não repita** o mesmo texto na resposta final.
+- Para PIX/pagamento: confirme plano e valor com o cliente antes; use chave PIX cadastrada da academia (pergunte ao operador se não souber).
+- Texto simples continua válido para conversas curtas.
+
 Se `gym_id` estiver vazio, `listar_academias` → `selecionar_academia(slug=piloto)`.
 
 
