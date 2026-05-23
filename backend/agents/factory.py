@@ -67,6 +67,7 @@ def create_recepcionista_agent(
     gym = None
     if settings.supabase_configured:
         try:
+            gym_id = services.resolve_gym_id(gym_id)
             gym = services.get_gym_by_id(gym_id)
         except Exception:
             pass
@@ -111,7 +112,7 @@ def create_recepcionista_agent(
 def create_os_demo_agent() -> Agent:
     """
     Agente para testar no AgentOS (UI Agno).
-    Usa DEFAULT_GYM_ID e sessão de demonstração.
+    Resolve academia via Supabase (DEFAULT_GYM_ID ou slug piloto).
     """
     settings = get_settings()
     gym_id = settings.default_gym_id
@@ -120,6 +121,7 @@ def create_os_demo_agent() -> Agent:
 
     if settings.supabase_configured:
         try:
+            gym_id = services.resolve_gym_id(settings.default_gym_id)
             member = services.get_or_create_member(
                 gym_id,
                 phone="5511999999999",
@@ -127,8 +129,10 @@ def create_os_demo_agent() -> Agent:
                 name="Cliente Demo OS",
             )
             member_id = member["id"]
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("fit.agent").warning("Supabase demo: %s", exc)
 
     return create_recepcionista_agent(
         gym_id=gym_id,

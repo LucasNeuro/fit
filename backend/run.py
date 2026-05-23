@@ -64,7 +64,6 @@ def main() -> None:
     print("  os.agno.com -> Local -> URL acima -> REFRESH")
     print("  Deixe ESTE terminal aberto (Ctrl+C para parar)")
     print("=" * 52)
-    print()
 
     uvicorn.run(
         app,

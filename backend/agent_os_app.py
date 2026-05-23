@@ -23,9 +23,34 @@ apply_dev_ssl_patches()
 
 from agno.os import AgentOS
 
+import logging
+
 from agents.factory import create_os_demo_agent
+from core.config import get_settings
+from core import services
+
+logger = logging.getLogger("fit.agentos")
 
 fit_agent = create_os_demo_agent()
+
+settings = get_settings()
+if settings.supabase_configured:
+    try:
+        gym_id = services.resolve_gym_id(settings.default_gym_id)
+        gym = services.get_gym_by_id(gym_id) or {}
+        stats = services.gym_data_summary(gym_id)
+        msg = (
+            f"Supabase OK — {gym.get('name', 'academia')} | "
+            f"planos={stats['planos']} horarios={stats['horarios_futuros']} membros={stats['membros']}"
+        )
+        logger.info(msg)
+        print(f"  {msg}")
+        print(f"  gym_id={gym_id}")
+    except Exception as exc:
+        logger.warning("Supabase: %s", exc)
+        print(f"  AVISO Supabase: {exc}")
+else:
+    print("  AVISO: Supabase não configurado — tools não acessam o banco.")
 
 agent_os = AgentOS(
     id="fit-agentos",

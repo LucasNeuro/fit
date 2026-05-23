@@ -23,6 +23,23 @@ def _ctx(run_context: RunContext) -> dict:
     return run_context.session_state
 
 
+def _require_gym(gym_id: str) -> str | None:
+    """Valida academia no Supabase; retorna mensagem de erro ou None."""
+    gym = services.get_gym_by_id(gym_id)
+    if gym:
+        return None
+    try:
+        resolved = services.resolve_gym_id(gym_id)
+        if resolved != gym_id:
+            return (
+                f"Academia {gym_id} não existe no banco. "
+                f"Use DEFAULT_GYM_ID={resolved} no .env (slug piloto no seed)."
+            )
+    except RuntimeError as exc:
+        return str(exc)
+    return f"Academia {gym_id} não encontrada no Supabase. Rode seed_piloto_completo.sql."
+
+
 @tool
 def listar_horarios(
     run_context: RunContext,
@@ -37,11 +54,19 @@ def listar_horarios(
     state = _ctx(run_context)
     gym_id = state["gym_id"]
     log_tool("listar_horarios", gym_id=gym_id, modality=modality, date=date_iso)
+    if err := _require_gym(gym_id):
+        return err
     day = date.fromisoformat(date_iso) if date_iso else None
     mod = modality.strip() or None
     slots = services.list_available_slots(gym_id, modality=mod, day=day)
     if not slots:
-        return "Não há horários disponíveis para esse filtro."
+        summary = services.gym_data_summary(gym_id)
+        if summary["horarios_futuros"] == 0:
+            return (
+                "Não há horários futuros cadastrados para esta academia no banco. "
+                "Rode supabase/seed_piloto_completo.sql no Supabase."
+            )
+        return "Não há horários disponíveis para esse filtro (modalidade/data). Tente sem filtro ou outra data."
     lines = []
     for s in slots:
         vagas = s["capacity"] - s["booked_count"]
@@ -56,9 +81,11 @@ def listar_planos(run_context: RunContext) -> str:
     """Lista planos ativos com preços oficiais da academia."""
     gym_id = _ctx(run_context)["gym_id"]
     log_tool("listar_planos", gym_id=gym_id)
+    if err := _require_gym(gym_id):
+        return err
     plans = services.list_plans(gym_id)
     if not plans:
-        return "Nenhum plano cadastrado no momento."
+        return "Nenhum plano cadastrado no banco para esta academia. Rode seed_piloto_completo.sql."
     lines = []
     for p in plans:
         reais = p["price_cents"] / 100
