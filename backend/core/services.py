@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -212,6 +213,61 @@ def register_whatsapp_instance(
     return res.data[0]
 
 
+def is_valid_member_id(member_id: str | None) -> bool:
+    if not member_id:
+        return False
+    try:
+        uuid.UUID(str(member_id))
+        return True
+    except ValueError:
+        return False
+
+
+def ensure_member_id(
+    gym_id: str,
+    *,
+    member_id: str | None = None,
+    wa_chatid: str | None = None,
+    phone: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
+    """
+    Garante membro UUID válido no Supabase (AgentOS pode enviar e-mail no lugar de UUID).
+    """
+    if is_valid_member_id(member_id):
+        existing = (
+            get_supabase()
+            .table("members")
+            .select("*")
+            .eq("id", member_id)
+            .eq("gym_id", gym_id)
+            .maybe_single()
+            .execute()
+        )
+        if existing and existing.data:
+            row = existing.data
+            return row if isinstance(row, dict) else row[0]
+
+    chat = wa_chatid or "5511999999999@s.whatsapp.net"
+    tel = phone or chat.replace("@s.whatsapp.net", "").replace("@c.us", "")
+    return get_or_create_member(gym_id, phone=tel, wa_chatid=chat, name=name or "Visitante")
+
+
+def list_member_bookings(gym_id: str, member_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    sb = get_supabase()
+    res = (
+        sb.table("bookings")
+        .select("id, status, created_at, slot_id, class_slots(modality, starts_at)")
+        .eq("gym_id", gym_id)
+        .eq("member_id", member_id)
+        .neq("status", "cancelled")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return res.data or []
+
+
 def get_or_create_member(
     gym_id: str,
     phone: str,
@@ -224,19 +280,20 @@ def get_or_create_member(
         .select("*")
         .eq("gym_id", gym_id)
         .eq("phone", phone)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
     if existing.data:
+        row = existing.data[0]
         updates: dict[str, Any] = {}
-        if wa_chatid and existing.data.get("wa_chatid") != wa_chatid:
+        if wa_chatid and row.get("wa_chatid") != wa_chatid:
             updates["wa_chatid"] = wa_chatid
-        if name and not existing.data.get("name"):
+        if name and not row.get("name"):
             updates["name"] = name
         if updates:
-            sb.table("members").update(updates).eq("id", existing.data["id"]).execute()
-            existing.data.update(updates)
-        return existing.data
+            sb.table("members").update(updates).eq("id", row["id"]).execute()
+            row.update(updates)
+        return row
 
     payload = {
         "gym_id": gym_id,
@@ -348,6 +405,12 @@ def list_plans(gym_id: str) -> list[dict[str, Any]]:
 
 
 def create_booking(gym_id: str, member_id: str, slot_id: str) -> dict[str, Any]:
+    if not is_valid_member_id(member_id):
+        return {
+            "ok": False,
+            "error": "member_id inválido — use ensure_member antes de reservar.",
+        }
+
     sb = get_supabase()
     slot_res = (
         sb.table("class_slots")
@@ -363,18 +426,24 @@ def create_booking(gym_id: str, member_id: str, slot_id: str) -> dict[str, Any]:
     if slot["booked_count"] >= slot["capacity"]:
         return {"ok": False, "error": "Este horário está lotado."}
 
-    booking = (
-        sb.table("bookings")
-        .insert(
-            {
-                "gym_id": gym_id,
-                "member_id": member_id,
-                "slot_id": slot_id,
-                "status": "confirmed",
-            }
+    try:
+        booking = (
+            sb.table("bookings")
+            .insert(
+                {
+                    "gym_id": gym_id,
+                    "member_id": member_id,
+                    "slot_id": slot_id,
+                    "status": "confirmed",
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:
+        return {"ok": False, "error": f"Falha ao gravar no Supabase: {exc}"}
+
+    if not booking.data:
+        return {"ok": False, "error": "Reserva não foi gravada (resposta vazia do banco)."}
 
     sb.table("class_slots").update({"booked_count": slot["booked_count"] + 1}).eq(
         "id", slot_id

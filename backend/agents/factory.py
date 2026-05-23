@@ -25,8 +25,8 @@ def _reset_stale_agent_sessions() -> None:
         AGENT_DB_PATH.unlink()
         logging.getLogger("fit.agent").info("Sessões AgentOS antigas removidas (%s)", AGENT_DB_PATH)
 
-# Sessão demo — v3 invalida cache Agno com gym_id legado (a0000000...)
-OS_DEMO_SESSION_PREFIX = "fit:v3"
+# Sessão demo — v4 invalida sessões com member_id inválido (e-mail do AgentOS)
+OS_DEMO_SESSION_PREFIX = "fit:v4"
 OS_DEMO_USER = "os-demo-user"
 OS_DEMO_CHAT = "5511999999999@s.whatsapp.net"
 
@@ -99,7 +99,18 @@ def create_recepcionista_agent(
 
     sid = session_id or f"{gym_id}:{wa_chatid}"
 
-    # WhatsApp conecta pelo painel admin (futuro) — agente só atende lead/aluno
+    if settings.supabase_configured and gym_id:
+        try:
+            member = services.ensure_member_id(
+                gym_id,
+                member_id=member_id,
+                wa_chatid=wa_chatid,
+                name="Cliente chat",
+            )
+            member_id = member["id"]
+        except Exception:
+            pass
+
     instructions = _build_instructions(gym, gym_id, member_id, wa_chatid)
 
     return Agent(

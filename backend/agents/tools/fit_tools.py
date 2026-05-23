@@ -25,6 +25,38 @@ def _ctx(run_context: RunContext) -> dict:
     return run_context.session_state
 
 
+def _is_uuid(value: str | None) -> bool:
+    return services.is_valid_member_id(value)
+
+
+def _resolve_write_context(
+    run_context: RunContext,
+    *,
+    member_name: str | None = None,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Retorna (gym_id, member_id, wa_chatid, erro). Garante UUID no Supabase."""
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return None, None, None, err
+
+    state = _ctx(run_context)
+    wa_chatid = (state.get("wa_chatid") or "5511999999999@s.whatsapp.net").strip()
+
+    try:
+        member = services.ensure_member_id(
+            gym_id,
+            member_id=state.get("member_id"),
+            wa_chatid=wa_chatid,
+            name=member_name or state.get("member_name") or "Visitante chat",
+        )
+    except Exception as exc:
+        return None, None, None, f"Não foi possível cadastrar o cliente: {exc}"
+
+    state["member_id"] = member["id"]
+    state["wa_chatid"] = wa_chatid
+    return gym_id, member["id"], wa_chatid, None
+
+
 def _gym_id_from_ctx(run_context: RunContext) -> tuple[str | None, str | None]:
     """
     Retorna (gym_id, mensagem_erro).
@@ -154,20 +186,18 @@ def listar_planos(run_context: RunContext) -> str:
 @tool
 def criar_reserva(run_context: RunContext, slot_id: str) -> str:
     """
-    Confirma reserva de aula para o cliente atual.
-    slot_id: UUID obtido em listar_horarios.
+    GRAVA reserva no Supabase (tabelas bookings + class_slots).
+    slot_id: UUID de listar_horarios ou run_sql_query.
+    Só diga ao cliente que agendou se esta tool retornar booking_id=...
     """
-    state = _ctx(run_context)
-    gym_id, err = _gym_id_from_ctx(run_context)
+    gym_id, member_id, wa_chatid, err = _resolve_write_context(run_context)
     if err:
         return err
-    member_id = state["member_id"]
-    wa_chatid = state["wa_chatid"]
-    log_tool("criar_reserva", gym_id=gym_id, slot_id=slot_id)
+    log_tool("criar_reserva", gym_id=gym_id, member_id=member_id, slot_id=slot_id)
 
     result = services.create_booking(gym_id, member_id, slot_id.strip())
     if not result.get("ok"):
-        return f"Não foi possível reservar: {result.get('error')}"
+        return f"ERRO — reserva NÃO gravada: {result.get('error')}"
 
     services.upsert_crm_contact(
         gym_id,
@@ -191,10 +221,32 @@ def criar_reserva(run_context: RunContext, slot_id: str) -> str:
     except Exception:
         pass
 
+    quando = services.format_slot_br(str(result.get("starts_at")))
     return (
-        f"Reserva confirmada! Aula de {result['modality']} em {result['starts_at']}. "
-        "Te esperamos na academia!"
+        f"OK — reserva GRAVADA no banco. "
+        f"booking_id={result['booking_id']} | {result['modality']} | {quando} (BR) | "
+        f"member_id={member_id}"
     )
+
+
+@tool
+def consultar_reservas_cliente(run_context: RunContext) -> str:
+    """Lista reservas confirmadas do cliente atual no banco (verificação)."""
+    gym_id, member_id, _, err = _resolve_write_context(run_context)
+    if err:
+        return err
+    log_tool("consultar_reservas_cliente", gym_id=gym_id, member_id=member_id)
+    rows = services.list_member_bookings(gym_id, member_id)
+    if not rows:
+        return "Nenhuma reserva confirmada no banco para este cliente."
+    lines = []
+    for r in rows:
+        slot = r.get("class_slots") or {}
+        quando = services.format_slot_br(slot.get("starts_at", "")) if slot.get("starts_at") else "?"
+        lines.append(
+            f"- booking_id={r['id']} | {slot.get('modality', '?')} | {quando} | status={r['status']}"
+        )
+    return "Reservas no sistema:\n" + "\n".join(lines)
 
 
 @tool
@@ -212,12 +264,9 @@ def atualizar_lead_crm(
     notes: anotações
     open_ticket: True para passar para humano
     """
-    state = _ctx(run_context)
-    gym_id, err = _gym_id_from_ctx(run_context)
+    gym_id, member_id, wa_chatid, err = _resolve_write_context(run_context)
     if err:
         return err
-    member_id = state["member_id"]
-    wa_chatid = state["wa_chatid"]
     log_tool(
         "atualizar_lead_crm",
         gym_id=gym_id,
@@ -258,7 +307,7 @@ def atualizar_lead_crm(
         except Exception:
             pass
 
-    return "CRM atualizado."
+    return f"CRM gravado no banco para member_id={member_id}."
 
 
 FIT_TOOLS = [
@@ -267,5 +316,6 @@ FIT_TOOLS = [
     listar_horarios,
     listar_planos,
     criar_reserva,
+    consultar_reservas_cliente,
     atualizar_lead_crm,
 ]
