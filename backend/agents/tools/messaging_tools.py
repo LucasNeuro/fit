@@ -13,6 +13,7 @@ from typing import Any
 from agno.run import RunContext
 from agno.tools import tool
 
+from core import services
 from core.logging_setup import log_tool
 from core.uazapi_client import get_uazapi
 
@@ -52,6 +53,40 @@ def _parse_carousel(raw: str) -> list[dict[str, Any]]:
     if not isinstance(parsed, list):
         raise ValueError("carrossel JSON deve ser uma lista de cartões.")
     return parsed
+
+
+def _gym_id_from_ctx(run_context: RunContext) -> str | None:
+    state = run_context.session_state or {}
+    return (state.get("gym_id") or "").strip() or None
+
+
+def _resolve_pix(
+    run_context: RunContext,
+    chave_pix: str = "",
+    tipo_chave: str = "",
+    nome_recebedor: str = "",
+) -> tuple[str, str, str] | str:
+    """Usa parâmetros explícitos ou PIX cadastrado na academia (gyms.pix_*)."""
+    key = chave_pix.strip()
+    ptype = tipo_chave.strip().upper()
+    pname = nome_recebedor.strip()
+
+    if not key:
+        gym_id = _gym_id_from_ctx(run_context)
+        if gym_id:
+            cfg = services.get_gym_pix_config(gym_id)
+            if cfg:
+                key = cfg["pix_key"]
+                ptype = ptype or cfg["pix_type"]
+                pname = pname or cfg["pix_name"]
+
+    if not key:
+        return "ERRO: chave PIX não cadastrada para esta academia (gyms.pix_key)."
+    if not ptype:
+        ptype = "CNPJ"
+    if not pname:
+        pname = "Academia"
+    return key, ptype, pname
 
 
 @tool
@@ -227,24 +262,30 @@ def enviar_contato_whatsapp(
 @tool
 def enviar_botao_pix_whatsapp(
     run_context: RunContext,
-    chave_pix: str,
-    tipo_chave: str = "EVP",
-    nome_recebedor: str = "Academia",
+    chave_pix: str = "",
+    tipo_chave: str = "",
+    nome_recebedor: str = "",
 ) -> str:
     """
     Envia botão PIX nativo do WhatsApp (matrícula / mensalidade).
+    Se chave_pix vazio, usa gyms.pix_key cadastrada no Supabase.
     tipo_chave: CPF | CNPJ | PHONE | EMAIL | EVP
     """
     wa_chatid, token, err = _chat_and_token(run_context)
     if err:
         return f"ERRO: {err}"
 
+    resolved = _resolve_pix(run_context, chave_pix, tipo_chave, nome_recebedor)
+    if isinstance(resolved, str):
+        return resolved
+    key, ptype, pname = resolved
+
     client = get_uazapi(token)
     result = client.send_pix_button(
         wa_chatid,
-        pix_key=chave_pix,
-        pix_type=tipo_chave,
-        pix_name=nome_recebedor,
+        pix_key=key,
+        pix_type=ptype,
+        pix_name=pname,
         readchat=True,
     )
     if result.get("skipped"):
@@ -271,6 +312,13 @@ def solicitar_pagamento_whatsapp(
     if err:
         return f"ERRO: {err}"
 
+    pix_key = chave_pix.strip()
+    if not pix_key:
+        resolved = _resolve_pix(run_context)
+        if isinstance(resolved, str):
+            return resolved
+        pix_key, _, _ = resolved
+
     client = get_uazapi(token)
     result = client.send_request_payment(
         wa_chatid,
@@ -278,7 +326,7 @@ def solicitar_pagamento_whatsapp(
         text=descricao,
         title=titulo,
         item_name=nome_item,
-        pix_key=chave_pix or None,
+        pix_key=pix_key,
         payment_link=link_pagamento or None,
         readchat=True,
     )

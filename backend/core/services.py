@@ -28,6 +28,33 @@ def get_gym_by_slug(slug: str) -> dict[str, Any] | None:
     return res.data if res else None
 
 
+def get_gym_pix_config(gym_id: str) -> dict[str, str] | None:
+    """
+    Retorna pix_key, pix_type, pix_name da academia.
+    Lê colunas gyms.pix_* ou fallback em agent_config JSON.
+    """
+    gym = get_gym_by_id(gym_id)
+    if not gym:
+        return None
+
+    cfg = gym.get("agent_config") or {}
+    if isinstance(cfg, str):
+        import json
+
+        try:
+            cfg = json.loads(cfg)
+        except json.JSONDecodeError:
+            cfg = {}
+
+    pix_key = (gym.get("pix_key") or cfg.get("pix_key") or "").strip()
+    if not pix_key:
+        return None
+
+    pix_type = (gym.get("pix_type") or cfg.get("pix_type") or "CNPJ").strip().upper()
+    pix_name = (gym.get("pix_name") or cfg.get("pix_name") or gym.get("name") or "Academia").strip()
+    return {"pix_key": pix_key, "pix_type": pix_type, "pix_name": pix_name}
+
+
 class GymContextRequired(Exception):
     """Várias academias — agente deve chamar selecionar_academia."""
 
