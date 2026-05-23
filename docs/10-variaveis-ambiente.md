@@ -29,6 +29,21 @@ O payload do webhook traz **`instance_id`** → Supabase tabela `gym_whatsapp_in
 | `MISTRAL_API_KEY` | console.mistral.ai |
 | `SUPABASE_URL` | Supabase → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Mesma tela (secret) |
+| `SUPABASE_DB_URL` | **Database → Connection string (URI)** — agente SQL (Session pooler). Use prefixo `postgresql+psycopg://` |
+
+### SQLTools (interface agêntica no banco)
+
+O agente usa **Agno SQLTools** para `SELECT` em planos, horários, CRM, etc.  
+Escritas continuam pelas tools `criar_reserva` e `atualizar_lead_crm`.
+
+No Supabase: **Project Settings → Database → Connection string → URI** (modo Session ou Transaction pooler).  
+Exemplo:
+
+```
+SUPABASE_DB_URL=postgresql+psycopg://postgres.xxxx:[SENHA]@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
+```
+
+Sem `SUPABASE_DB_URL`, o agente usa só as tools FIT (REST Supabase).
 
 ### UAZAPI (servidor único)
 
