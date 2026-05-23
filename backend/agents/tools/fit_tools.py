@@ -7,6 +7,8 @@ Ver: https://docs.agno.com/tools/overview
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date
 
 from agno.run import RunContext
@@ -23,21 +25,66 @@ def _ctx(run_context: RunContext) -> dict:
     return run_context.session_state
 
 
-def _require_gym(gym_id: str) -> str | None:
-    """Valida academia no Supabase; retorna mensagem de erro ou None."""
-    gym = services.get_gym_by_id(gym_id)
-    if gym:
-        return None
+def _gym_id_from_ctx(run_context: RunContext) -> tuple[str | None, str | None]:
+    """
+    Retorna (gym_id, mensagem_erro).
+    Sempre reconcilia com Supabase — ignora gym_id vazio/legado sem horários.
+    """
+    state = _ctx(run_context)
+    raw = (state.get("gym_id") or "").strip()
     try:
-        resolved = services.resolve_gym_id(gym_id)
-        if resolved != gym_id:
-            return (
-                f"Academia {gym_id} não existe no banco. "
-                f"Use DEFAULT_GYM_ID={resolved} no .env (slug piloto no seed)."
+        gym_id = services.resolve_session_gym_id(gym_id=raw or None)
+        if raw and raw != gym_id:
+            logging.getLogger("fit.tool").info(
+                "gym_id sessão %s -> %s (academia operacional no banco)", raw, gym_id
             )
+        state["gym_id"] = gym_id
+        return gym_id, None
+    except services.GymContextRequired as exc:
+        return None, str(exc)
+    except RuntimeError as exc:
+        return None, str(exc)
+
+
+@tool
+def listar_academias(run_context: RunContext) -> str:
+    """Lista academias cadastradas no FIT (somente leitura). Use antes de selecionar_academia se houver mais de uma."""
+    log_tool("listar_academias")
+    try:
+        gyms = services.list_gyms()
+    except Exception as exc:
+        return f"Não foi possível consultar academias: {exc}"
+    if not gyms:
+        return "Nenhuma academia no banco. Cadastre via painel ou seed SQL."
+    lines = []
+    for g in gyms:
+        lines.append(f"- {g['name']} | slug={g['slug']} | gym_id={g['id']}")
+    return "\n".join(lines)
+
+
+@tool
+def selecionar_academia(
+    run_context: RunContext,
+    slug: str = "",
+    gym_id: str = "",
+) -> str:
+    """
+    Define qual academia atender nesta conversa (consulta o banco).
+    Informe slug (ex: piloto) ou gym_id (UUID).
+    """
+    log_tool("selecionar_academia", slug=slug, gym_id=gym_id)
+    state = _ctx(run_context)
+    try:
+        resolved = services.resolve_session_gym_id(
+            gym_id=gym_id.strip() or None,
+            slug=slug.strip() or None,
+        )
     except RuntimeError as exc:
         return str(exc)
-    return f"Academia {gym_id} não encontrada no Supabase. Rode seed_piloto_completo.sql."
+
+    gym = services.get_gym_by_id(resolved)
+    state["gym_id"] = resolved
+    return f"Academia ativa: {gym.get('name') if gym else resolved} (gym_id={resolved}). Pode consultar planos e horários."
 
 
 @tool
@@ -49,16 +96,19 @@ def listar_horarios(
     """
     Lista horários disponíveis para agendamento.
     modality: ex funcional, musculação (opcional)
-    date_iso: data AAAA-MM-DD (opcional)
+    date_iso: data AAAA-MM-DD no fuso de São Paulo (opcional; omita para ver próximos horários)
     """
-    state = _ctx(run_context)
-    gym_id = state["gym_id"]
-    log_tool("listar_horarios", gym_id=gym_id, modality=modality, date=date_iso)
-    if err := _require_gym(gym_id):
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
         return err
+    log_tool("listar_horarios", gym_id=gym_id, modality=modality, date=date_iso)
     day = date.fromisoformat(date_iso) if date_iso else None
     mod = modality.strip() or None
     slots = services.list_available_slots(gym_id, modality=mod, day=day)
+    if not slots and day and not mod:
+        slots = services.list_available_slots(gym_id)
+    if not slots and mod:
+        slots = services.list_available_slots(gym_id, day=day)
     if not slots:
         summary = services.gym_data_summary(gym_id)
         if summary["horarios_futuros"] == 0:
@@ -66,23 +116,31 @@ def listar_horarios(
                 "Não há horários futuros cadastrados para esta academia no banco. "
                 "Rode supabase/seed_piloto_completo.sql no Supabase."
             )
-        return "Não há horários disponíveis para esse filtro (modalidade/data). Tente sem filtro ou outra data."
+        hint = ""
+        if day or mod:
+            hint = " (filtro de data/modalidade não encontrou nada — tente sem filtro)"
+        return f"Não há vagas livres para esse filtro{hint}."
     lines = []
     for s in slots:
         vagas = s["capacity"] - s["booked_count"]
+        quando = services.format_slot_br(s["starts_at"])
         lines.append(
-            f"- slot_id={s['id']} | {s['modality']} | {s['starts_at']} | {vagas} vaga(s)"
+            f"- slot_id={s['id']} | {s['modality']} | {quando} (BR) | {vagas} vaga(s)"
         )
-    return "\n".join(lines)
+    extra = ""
+    total = services.gym_data_summary(gym_id)["horarios_futuros"]
+    if len(slots) < total:
+        extra = f"\n(mostrando {len(slots)} próximos horários com vaga)"
+    return "\n".join(lines) + extra
 
 
 @tool
 def listar_planos(run_context: RunContext) -> str:
     """Lista planos ativos com preços oficiais da academia."""
-    gym_id = _ctx(run_context)["gym_id"]
-    log_tool("listar_planos", gym_id=gym_id)
-    if err := _require_gym(gym_id):
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
         return err
+    log_tool("listar_planos", gym_id=gym_id)
     plans = services.list_plans(gym_id)
     if not plans:
         return "Nenhum plano cadastrado no banco para esta academia. Rode seed_piloto_completo.sql."
@@ -100,7 +158,9 @@ def criar_reserva(run_context: RunContext, slot_id: str) -> str:
     slot_id: UUID obtido em listar_horarios.
     """
     state = _ctx(run_context)
-    gym_id = state["gym_id"]
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     member_id = state["member_id"]
     wa_chatid = state["wa_chatid"]
     log_tool("criar_reserva", gym_id=gym_id, slot_id=slot_id)
@@ -153,7 +213,9 @@ def atualizar_lead_crm(
     open_ticket: True para passar para humano
     """
     state = _ctx(run_context)
-    gym_id = state["gym_id"]
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     member_id = state["member_id"]
     wa_chatid = state["wa_chatid"]
     log_tool(
@@ -200,6 +262,8 @@ def atualizar_lead_crm(
 
 
 FIT_TOOLS = [
+    listar_academias,
+    selecionar_academia,
     listar_horarios,
     listar_planos,
     criar_reserva,

@@ -27,9 +27,13 @@ class Settings(BaseSettings):
     # Mistral
     mistral_api_key: str = ""
 
-    # Supabase
+    # Supabase REST (service role)
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+
+    # Postgres direto — SQLTools (Supabase → Settings → Database → Connection string)
+    # postgresql+psycopg://postgres.[ref]:[SENHA]@aws-0-xxx.pooler.supabase.com:6543/postgres
+    supabase_db_url: str = ""
 
     # UAZAPI — servidor único (ex: onnzetecnologia.uazapi.com), várias instâncias/academias
     uazapi_base_url: str = "https://onnzetecnologia.uazapi.com"
@@ -46,9 +50,6 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
-    # UUID da academia (seed). Se inválido, usa DEFAULT_GYM_SLUG.
-    default_gym_id: str = ""
-    default_gym_slug: str = "piloto"
     qr_signing_secret: str = "change-me-in-production"
 
     agent_model_default: str = "mistral-small-latest"
@@ -56,6 +57,10 @@ class Settings(BaseSettings):
     @property
     def supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_service_role_key)
+
+    @property
+    def database_configured(self) -> bool:
+        return bool(self.supabase_db_url.strip())
 
     @property
     def mistral_configured(self) -> bool:

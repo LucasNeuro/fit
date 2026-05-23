@@ -55,7 +55,7 @@ FROM gyms g
 CROSS JOIN generate_series(1, 5) AS d
 WHERE g.slug = 'piloto';
 
--- Copie gym_id_para_env para backend/.env → DEFAULT_GYM_ID=
+-- gym_id: webhook (instância UAZAPI) ou tool selecionar_academia — não precisa .env
 SELECT id AS gym_id_para_env, name, slug
 FROM gyms
 WHERE slug = 'piloto';

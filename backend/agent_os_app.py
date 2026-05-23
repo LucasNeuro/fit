@@ -25,32 +25,46 @@ from agno.os import AgentOS
 
 import logging
 
-from agents.factory import create_os_demo_agent
+from agents.factory import create_os_demo_agent, _reset_stale_agent_sessions
 from core.config import get_settings
 from core import services
 
 logger = logging.getLogger("fit.agentos")
+
+_reset_stale_agent_sessions()
 
 fit_agent = create_os_demo_agent()
 
 settings = get_settings()
 if settings.supabase_configured:
     try:
-        gym_id = services.resolve_gym_id(settings.default_gym_id)
-        gym = services.get_gym_by_id(gym_id) or {}
-        stats = services.gym_data_summary(gym_id)
-        msg = (
-            f"Supabase OK — {gym.get('name', 'academia')} | "
-            f"planos={stats['planos']} horarios={stats['horarios_futuros']} membros={stats['membros']}"
-        )
-        logger.info(msg)
-        print(f"  {msg}")
-        print(f"  gym_id={gym_id}")
+        gyms = services.list_gyms()
+        print(f"  Supabase OK — {len(gyms)} academia(s) no banco")
+        for g in gyms:
+            stats = services.gym_data_summary(g["id"])
+            print(
+                f"    • {g['name']} (slug={g['slug']}) | "
+                f"planos={stats['planos']} horarios={stats['horarios_futuros']}"
+            )
+        if len(gyms) > 1:
+            print("  Várias academias: agente usa listar_academias / selecionar_academia")
+        elif len(gyms) == 1:
+            print(f"  gym_id ativo (única): {gyms[0]['id']}")
     except Exception as exc:
         logger.warning("Supabase: %s", exc)
         print(f"  AVISO Supabase: {exc}")
 else:
     print("  AVISO: Supabase não configurado — tools não acessam o banco.")
+
+if settings.database_configured:
+    from agents.tools.sql_agent import get_fit_sql_tools
+
+    if get_fit_sql_tools():
+        print("  SQLTools: ativo (run_sql_query só SELECT)")
+    else:
+        print("  AVISO: SUPABASE_DB_URL definida mas SQLTools falhou ao conectar")
+else:
+    print("  AVISO: defina SUPABASE_DB_URL para o agente consultar SQL (interface agêntica)")
 
 agent_os = AgentOS(
     id="fit-agentos",

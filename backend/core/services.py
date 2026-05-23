@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from core.supabase_client import get_supabase
+
+TZ_BR = ZoneInfo("America/Sao_Paulo")
 
 
 def get_gym_by_id(gym_id: str) -> dict[str, Any] | None:
@@ -24,35 +27,66 @@ def get_gym_by_slug(slug: str) -> dict[str, Any] | None:
     return res.data if res else None
 
 
-def resolve_gym_id(preferred_id: str | None = None, slug: str | None = None) -> str:
+class GymContextRequired(Exception):
+    """Várias academias — agente deve chamar selecionar_academia."""
+
+
+def list_gyms() -> list[dict[str, Any]]:
+    sb = get_supabase()
+    res = sb.table("gyms").select("id, name, slug, phone_whatsapp").order("name").execute()
+    return res.data or []
+
+
+def gym_is_operational(gym_id: str) -> bool:
+    """Academia com planos ou horários futuros (ignora cadastro vazio/legado)."""
+    try:
+        summary = gym_data_summary(gym_id)
+    except Exception:
+        return False
+    return summary["planos"] > 0 or summary["horarios_futuros"] > 0
+
+
+def resolve_session_gym_id(
+    *,
+    gym_id: str | None = None,
+    slug: str | None = None,
+) -> str:
     """
-    Resolve gym_id para AgentOS/dev: tenta UUID do .env, depois slug (piloto).
+    Resolve academia só pelo Supabase (sessão, slug ou única academia com dados).
+    Ignora gym_id de sessão antiga se a academia não tiver planos/horários.
     """
-    from core.config import get_settings
+    slug_clean = (slug or "").strip()
+    if slug_clean:
+        gym = get_gym_by_slug(slug_clean)
+        if gym:
+            return gym["id"]
+        raise RuntimeError(f"Academia com slug '{slug_clean}' não encontrada.")
 
-    settings = get_settings()
-    candidates: list[str] = []
-    if preferred_id:
-        candidates.append(preferred_id.strip())
-    if settings.default_gym_id:
-        candidates.append(settings.default_gym_id.strip())
+    gid = (gym_id or "").strip()
+    if gid and get_gym_by_id(gid) and gym_is_operational(gid):
+        return gid
 
-    seen: set[str] = set()
-    for gid in candidates:
-        if not gid or gid in seen:
-            continue
-        seen.add(gid)
-        if get_gym_by_id(gid):
-            return gid
+    gyms = list_gyms()
+    if not gyms:
+        raise RuntimeError("Nenhuma academia no banco. Rode supabase/seed_piloto_completo.sql.")
 
-    fallback_slug = (slug or settings.default_gym_slug or "piloto").strip()
-    gym = get_gym_by_slug(fallback_slug)
-    if gym:
-        return gym["id"]
+    operational = [g for g in gyms if gym_is_operational(g["id"])]
+    if len(operational) == 1:
+        return operational[0]["id"]
+    if len(operational) > 1:
+        raise GymContextRequired(
+            "Existem várias academias com dados. Use listar_academias e selecionar_academia(slug=...) "
+            "antes de planos, horários ou reservas."
+        )
 
-    raise RuntimeError(
-        f"Academia não encontrada no Supabase. "
-        f"Rode seed_piloto_completo.sql e defina DEFAULT_GYM_ID ou DEFAULT_GYM_SLUG={fallback_slug!r}."
+    # Fallback: academia existe mas sem seed completo
+    if gid and get_gym_by_id(gid):
+        return gid
+    if len(gyms) == 1:
+        return gyms[0]["id"]
+
+    raise GymContextRequired(
+        "Nenhuma academia com planos/horários. Rode seed_piloto_completo.sql ou selecionar_academia."
     )
 
 
@@ -250,10 +284,33 @@ def get_recent_messages(gym_id: str, wa_chatid: str, limit: int = 10) -> list[di
     return list(reversed(res.data or []))
 
 
+def _normalize_text(value: str) -> str:
+    import unicodedata
+
+    n = unicodedata.normalize("NFD", value.lower())
+    return "".join(c for c in n if unicodedata.category(c) != "Mn")
+
+
+def _slot_local_date(starts_at: str) -> date:
+    dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_BR).date()
+
+
+def format_slot_br(starts_at: str) -> str:
+    dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_BR).strftime("%d/%m/%Y %H:%M")
+
+
 def list_available_slots(
     gym_id: str,
     modality: str | None = None,
     day: date | None = None,
+    *,
+    limit: int = 30,
 ) -> list[dict[str, Any]]:
     sb = get_supabase()
     query = (
@@ -262,20 +319,20 @@ def list_available_slots(
         .eq("gym_id", gym_id)
         .gte("starts_at", datetime.now(timezone.utc).isoformat())
         .order("starts_at")
+        .limit(500)
     )
-    if modality:
-        query = query.ilike("modality", f"%{modality}%")
     res = query.execute()
     slots = res.data or []
 
-    if day:
-        slots = [
-            s
-            for s in slots
-            if s["starts_at"][:10] == day.isoformat()
-        ]
+    if modality:
+        needle = _normalize_text(modality)
+        slots = [s for s in slots if needle in _normalize_text(s["modality"])]
 
-    return [s for s in slots if s["booked_count"] < s["capacity"]]
+    if day:
+        slots = [s for s in slots if _slot_local_date(s["starts_at"]) == day]
+
+    available = [s for s in slots if s["booked_count"] < s["capacity"]]
+    return available[:limit]
 
 
 def list_plans(gym_id: str) -> list[dict[str, Any]]:

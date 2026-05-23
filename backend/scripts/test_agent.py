@@ -23,6 +23,7 @@ load_dotenv(BACKEND / ".env")
 load_dotenv(BACKEND.parent / ".env")
 
 from core.config import get_settings  # noqa: E402
+from core import services  # noqa: E402
 from core.logging_setup import setup_logging, startup_banner  # noqa: E402
 from agents.runner import run_recepcionista  # noqa: E402
 
@@ -39,8 +40,16 @@ def main() -> None:
     print(f"Supabase: {'OK' if settings.supabase_configured else 'FALTA (tools não funcionam)'}")
     print(f"Pergunta: {msg}\n")
 
+    try:
+        gym_id = services.resolve_session_gym_id()
+    except services.GymContextRequired:
+        gym_id = services.resolve_session_gym_id(slug="piloto")
+    except RuntimeError as exc:
+        print(f"Erro: {exc}")
+        sys.exit(1)
+
     reply = run_recepcionista(
-        gym_id=settings.default_gym_id,
+        gym_id=gym_id,
         member_id="os-demo-user",
         wa_chatid="5511999999999@s.whatsapp.net",
         user_message=msg,
