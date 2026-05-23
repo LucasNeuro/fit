@@ -60,4 +60,5 @@ SELECT id AS gym_id_para_env, name, slug
 FROM gyms
 WHERE slug = 'piloto';
 
--- WhatsApp: use onboarding no agente (iniciar_conexao_whatsapp), não precisa seed aqui.
+-- Dados completos (planos, alunos, CRM, reservas): rode seed_piloto_completo.sql
+-- WhatsApp: cadastre no painel → gym_whatsapp_instances

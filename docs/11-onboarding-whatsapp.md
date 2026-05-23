@@ -10,7 +10,7 @@
 |------------------|---------------|
 | Token fixo no `.env` | Token retornado em `/instance/create` → salvo no Supabase |
 | 1 academia chumbada | N instâncias via `gym_whatsapp_instances` (até 3 por academia) |
-| Dono não autonomia | Dono configura pelo agente ou futuro painel |
+| Dono não autonomia | Equipe FIT configura pelo **painel** (não no chat) |
 
 No `.env` do servidor ficam só:
 
@@ -23,20 +23,16 @@ No `.env` do servidor ficam só:
 
 ---
 
-## Fluxo mini-onboarding (AgentOS / WhatsApp)
+## Fluxo (painel FIT — não no chat do agente)
 
 ```
-Dono: "Quero conectar meu WhatsApp"
+Operador no painel → criar instância UAZAPI
         │
         ▼
-academia_tem_whatsapp → 0 instâncias?
-        │
-        ▼
-iniciar_conexao_whatsapp
-   → POST /instance/create (admintoken)
+POST /instance/create (admintoken)
    → adminField01 = gym_id
    → Salva id + token em gym_whatsapp_instances
-   → Retorna paircode / instruções QR
+   → QR / paircode no painel
         │
         ▼
 Dono escaneia QR no celular

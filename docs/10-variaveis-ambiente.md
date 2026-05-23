@@ -69,7 +69,7 @@ https://SEU-NGROK.ngrok-free.app/api/whatsapp/webhook?wh=SEU_WEBHOOK_SECRET
 
 ## Cadastrar instâncias
 
-**Recomendado:** mini-onboarding no AgentOS (`iniciar_conexao_whatsapp`) ou painel futuro.
+**Recomendado:** painel FIT (cadastro de instância UAZAPI + `gym_whatsapp_instances`).
 
 Alternativa manual: criar no UAZAPI + `INSERT` em `gym_whatsapp_instances` (máx. 3 por academia).
 

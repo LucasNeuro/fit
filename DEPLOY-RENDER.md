@@ -34,6 +34,18 @@ git push -u origin main
 | Start Command | `uvicorn api.main:app --host 0.0.0.0 --port $PORT` |
 | Health Check Path | `/health` |
 
+### Se falhar com `No module named 'api'`
+
+1. **Repositório errado** — o log mostra `LucasNeuro/mkt`; use **`LucasNeuro/fit`**.
+2. **Root Directory vazio** — preencha: `backend`.
+3. **Python 3.14** — em Environment adicione `PYTHON_VERSION` = `3.12.8`.
+4. Salve e faça **Manual Deploy**. Teste: `https://fitbot-k26i.onrender.com/health`.
+
+Alternativa com raiz do repo (Root Directory vazio):
+
+| Build | `pip install -r requirements.txt` |
+| Start | `bash start.sh` |
+
 4. **Environment** — adicione (valores do seu `backend/.env`):
 
 ```

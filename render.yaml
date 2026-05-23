@@ -1,5 +1,8 @@
 # FIT — Web Service no Render (API + webhook global UAZAPI)
 # https://render.com/docs/blueprint-spec
+#
+# Repositório: LucasNeuro/fit (NÃO mkt)
+# Alternativa manual: Root Directory = backend OU Start = bash start.sh na raiz
 
 services:
   - type: web
@@ -9,9 +12,10 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
+    plan: free
     envVars:
       - key: PYTHON_VERSION
-        value: "3.12"
+        value: "3.12.8"
       - key: ENV
         value: production
       - key: WEBHOOK_VALIDATE_QUERY
