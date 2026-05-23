@@ -46,7 +46,9 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
-    default_gym_id: str = "a0000000-0000-4000-8000-000000000001"
+    # UUID da academia (seed). Se inválido, usa DEFAULT_GYM_SLUG.
+    default_gym_id: str = ""
+    default_gym_slug: str = "piloto"
     qr_signing_secret: str = "change-me-in-production"
 
     agent_model_default: str = "mistral-small-latest"
