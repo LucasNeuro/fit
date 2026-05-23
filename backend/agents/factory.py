@@ -17,8 +17,8 @@ from core.ssl_fix import mistral_client_params
 PROMPT_PATH = Path(__file__).parent / "prompts" / "recepcionista.md"
 AGENT_DB_PATH = Path(__file__).parent.parent / "tmp" / "fit_agent.db"
 
-# Sessão fixa para testes no AgentOS (playground)
-OS_DEMO_SESSION = "fit:os-demo"
+# Sessão demo — inclui gym para invalidar cache antigo com gym_id errado
+OS_DEMO_SESSION_PREFIX = "fit:os-demo"
 OS_DEMO_USER = "os-demo-user"
 OS_DEMO_CHAT = "5511999999999@s.whatsapp.net"
 
@@ -139,5 +139,5 @@ def create_os_demo_agent() -> Agent:
         member_id=member_id,
         wa_chatid=wa_chatid,
         agent_id="fit-recepcionista",
-        session_id=OS_DEMO_SESSION,
+        session_id=f"{OS_DEMO_SESSION_PREFIX}:{gym_id[:8]}",
     )

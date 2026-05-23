@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from core.supabase_client import get_supabase
+
+TZ_BR = ZoneInfo("America/Sao_Paulo")
 
 
 def get_gym_by_id(gym_id: str) -> dict[str, Any] | None:
@@ -250,10 +253,33 @@ def get_recent_messages(gym_id: str, wa_chatid: str, limit: int = 10) -> list[di
     return list(reversed(res.data or []))
 
 
+def _normalize_text(value: str) -> str:
+    import unicodedata
+
+    n = unicodedata.normalize("NFD", value.lower())
+    return "".join(c for c in n if unicodedata.category(c) != "Mn")
+
+
+def _slot_local_date(starts_at: str) -> date:
+    dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_BR).date()
+
+
+def format_slot_br(starts_at: str) -> str:
+    dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_BR).strftime("%d/%m/%Y %H:%M")
+
+
 def list_available_slots(
     gym_id: str,
     modality: str | None = None,
     day: date | None = None,
+    *,
+    limit: int = 30,
 ) -> list[dict[str, Any]]:
     sb = get_supabase()
     query = (
@@ -262,20 +288,20 @@ def list_available_slots(
         .eq("gym_id", gym_id)
         .gte("starts_at", datetime.now(timezone.utc).isoformat())
         .order("starts_at")
+        .limit(500)
     )
-    if modality:
-        query = query.ilike("modality", f"%{modality}%")
     res = query.execute()
     slots = res.data or []
 
-    if day:
-        slots = [
-            s
-            for s in slots
-            if s["starts_at"][:10] == day.isoformat()
-        ]
+    if modality:
+        needle = _normalize_text(modality)
+        slots = [s for s in slots if needle in _normalize_text(s["modality"])]
 
-    return [s for s in slots if s["booked_count"] < s["capacity"]]
+    if day:
+        slots = [s for s in slots if _slot_local_date(s["starts_at"]) == day]
+
+    available = [s for s in slots if s["booked_count"] < s["capacity"]]
+    return available[:limit]
 
 
 def list_plans(gym_id: str) -> list[dict[str, Any]]:
