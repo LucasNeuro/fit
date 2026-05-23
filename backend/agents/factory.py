@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,7 @@ from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.models.mistral import MistralChat
 
-from agents.tools.fit_tools import FIT_TOOLS
+from agents.tools import FIT_TOOLS, sql_tools_for_agent
 from core.config import get_settings
 from core import services
 from core.ssl_fix import mistral_client_params
@@ -17,8 +18,15 @@ from core.ssl_fix import mistral_client_params
 PROMPT_PATH = Path(__file__).parent / "prompts" / "recepcionista.md"
 AGENT_DB_PATH = Path(__file__).parent.parent / "tmp" / "fit_agent.db"
 
-# Sessão demo — inclui gym para invalidar cache antigo com gym_id errado
-OS_DEMO_SESSION_PREFIX = "fit:os-demo"
+
+def _reset_stale_agent_sessions() -> None:
+    """Remove sessões Agno com gym_id legado (ex.: placeholder a0000000)."""
+    if AGENT_DB_PATH.exists():
+        AGENT_DB_PATH.unlink()
+        logging.getLogger("fit.agent").info("Sessões AgentOS antigas removidas (%s)", AGENT_DB_PATH)
+
+# Sessão demo — v3 invalida cache Agno com gym_id legado (a0000000...)
+OS_DEMO_SESSION_PREFIX = "fit:v3"
 OS_DEMO_USER = "os-demo-user"
 OS_DEMO_CHAT = "5511999999999@s.whatsapp.net"
 
@@ -54,6 +62,12 @@ def _get_agent_db() -> SqliteDb:
     return SqliteDb(db_file=str(AGENT_DB_PATH))
 
 
+def _build_agent_tools() -> list[Any]:
+    tools: list[Any] = list(FIT_TOOLS)
+    tools.extend(sql_tools_for_agent())
+    return tools
+
+
 def create_recepcionista_agent(
     gym_id: str,
     member_id: str,
@@ -65,12 +79,12 @@ def create_recepcionista_agent(
     """Cria instância Agno configurada para uma conversa."""
     settings = get_settings()
     gym = None
-    if settings.supabase_configured and gym_id:
+    if settings.supabase_configured:
         try:
-            gym_id = services.resolve_session_gym_id(gym_id=gym_id)
+            gym_id = services.resolve_session_gym_id(gym_id=gym_id or None)
             gym = services.get_gym_by_id(gym_id)
         except (services.GymContextRequired, RuntimeError):
-            pass
+            gym_id = gym_id or ""
         except Exception:
             pass
 
@@ -104,7 +118,7 @@ def create_recepcionista_agent(
             "wa_chatid": wa_chatid,
         },
         instructions=instructions,
-        tools=FIT_TOOLS,
+        tools=_build_agent_tools(),
         markdown=True,
         add_history_to_context=True,
         num_history_runs=5,

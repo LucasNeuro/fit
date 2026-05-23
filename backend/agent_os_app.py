@@ -25,11 +25,13 @@ from agno.os import AgentOS
 
 import logging
 
-from agents.factory import create_os_demo_agent
+from agents.factory import create_os_demo_agent, _reset_stale_agent_sessions
 from core.config import get_settings
 from core import services
 
 logger = logging.getLogger("fit.agentos")
+
+_reset_stale_agent_sessions()
 
 fit_agent = create_os_demo_agent()
 
@@ -53,6 +55,16 @@ if settings.supabase_configured:
         print(f"  AVISO Supabase: {exc}")
 else:
     print("  AVISO: Supabase não configurado — tools não acessam o banco.")
+
+if settings.database_configured:
+    from agents.tools.sql_agent import get_fit_sql_tools
+
+    if get_fit_sql_tools():
+        print("  SQLTools: ativo (run_sql_query só SELECT)")
+    else:
+        print("  AVISO: SUPABASE_DB_URL definida mas SQLTools falhou ao conectar")
+else:
+    print("  AVISO: defina SUPABASE_DB_URL para o agente consultar SQL (interface agêntica)")
 
 agent_os = AgentOS(
     id="fit-agentos",

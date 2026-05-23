@@ -37,19 +37,24 @@ def list_gyms() -> list[dict[str, Any]]:
     return res.data or []
 
 
+def gym_is_operational(gym_id: str) -> bool:
+    """Academia com planos ou horários futuros (ignora cadastro vazio/legado)."""
+    try:
+        summary = gym_data_summary(gym_id)
+    except Exception:
+        return False
+    return summary["planos"] > 0 or summary["horarios_futuros"] > 0
+
+
 def resolve_session_gym_id(
     *,
     gym_id: str | None = None,
     slug: str | None = None,
 ) -> str:
     """
-    Resolve academia só pelo Supabase (sessão, slug ou única academia cadastrada).
-    Não usa variáveis de ambiente.
+    Resolve academia só pelo Supabase (sessão, slug ou única academia com dados).
+    Ignora gym_id de sessão antiga se a academia não tiver planos/horários.
     """
-    gid = (gym_id or "").strip()
-    if gid and get_gym_by_id(gid):
-        return gid
-
     slug_clean = (slug or "").strip()
     if slug_clean:
         gym = get_gym_by_slug(slug_clean)
@@ -57,15 +62,31 @@ def resolve_session_gym_id(
             return gym["id"]
         raise RuntimeError(f"Academia com slug '{slug_clean}' não encontrada.")
 
+    gid = (gym_id or "").strip()
+    if gid and get_gym_by_id(gid) and gym_is_operational(gid):
+        return gid
+
     gyms = list_gyms()
     if not gyms:
         raise RuntimeError("Nenhuma academia no banco. Rode supabase/seed_piloto_completo.sql.")
+
+    operational = [g for g in gyms if gym_is_operational(g["id"])]
+    if len(operational) == 1:
+        return operational[0]["id"]
+    if len(operational) > 1:
+        raise GymContextRequired(
+            "Existem várias academias com dados. Use listar_academias e selecionar_academia(slug=...) "
+            "antes de planos, horários ou reservas."
+        )
+
+    # Fallback: academia existe mas sem seed completo
+    if gid and get_gym_by_id(gid):
+        return gid
     if len(gyms) == 1:
         return gyms[0]["id"]
 
     raise GymContextRequired(
-        "Existem várias academias. Use listar_academias e selecionar_academia(slug=...) "
-        "antes de planos, horários ou reservas."
+        "Nenhuma academia com planos/horários. Rode seed_piloto_completo.sql ou selecionar_academia."
     )
 
 

@@ -7,6 +7,8 @@ Ver: https://docs.agno.com/tools/overview
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date
 
 from agno.run import RunContext
@@ -26,12 +28,16 @@ def _ctx(run_context: RunContext) -> dict:
 def _gym_id_from_ctx(run_context: RunContext) -> tuple[str | None, str | None]:
     """
     Retorna (gym_id, mensagem_erro).
-    Academia vem da sessão / tools — nunca do .env.
+    Sempre reconcilia com Supabase — ignora gym_id vazio/legado sem horários.
     """
     state = _ctx(run_context)
     raw = (state.get("gym_id") or "").strip()
     try:
         gym_id = services.resolve_session_gym_id(gym_id=raw or None)
+        if raw and raw != gym_id:
+            logging.getLogger("fit.tool").info(
+                "gym_id sessão %s -> %s (academia operacional no banco)", raw, gym_id
+            )
         state["gym_id"] = gym_id
         return gym_id, None
     except services.GymContextRequired as exc:
