@@ -286,7 +286,7 @@ WHERE g.slug = 'piloto'
 -- WhatsApp: cadastre no painel → gym_whatsapp_instances (não no agente)
 -- -----------------------------------------------------------------------------
 
--- Copie para backend/.env → DEFAULT_GYM_ID=
+-- gym_id vem do webhook (instância WhatsApp) ou tools do agente — não use .env
 SELECT
   g.id AS gym_id_para_env,
   g.name,

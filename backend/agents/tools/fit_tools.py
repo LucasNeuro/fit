@@ -23,14 +23,62 @@ def _ctx(run_context: RunContext) -> dict:
     return run_context.session_state
 
 
-def _gym_id_from_ctx(run_context: RunContext) -> str:
-    """Sempre usa gym_id válido do Supabase (corrige sessões antigas do AgentOS)."""
+def _gym_id_from_ctx(run_context: RunContext) -> tuple[str | None, str | None]:
+    """
+    Retorna (gym_id, mensagem_erro).
+    Academia vem da sessão / tools — nunca do .env.
+    """
     state = _ctx(run_context)
     raw = (state.get("gym_id") or "").strip()
-    gym_id = services.resolve_gym_id(raw or None)
-    if state.get("gym_id") != gym_id:
+    try:
+        gym_id = services.resolve_session_gym_id(gym_id=raw or None)
         state["gym_id"] = gym_id
-    return gym_id
+        return gym_id, None
+    except services.GymContextRequired as exc:
+        return None, str(exc)
+    except RuntimeError as exc:
+        return None, str(exc)
+
+
+@tool
+def listar_academias(run_context: RunContext) -> str:
+    """Lista academias cadastradas no FIT (somente leitura). Use antes de selecionar_academia se houver mais de uma."""
+    log_tool("listar_academias")
+    try:
+        gyms = services.list_gyms()
+    except Exception as exc:
+        return f"Não foi possível consultar academias: {exc}"
+    if not gyms:
+        return "Nenhuma academia no banco. Cadastre via painel ou seed SQL."
+    lines = []
+    for g in gyms:
+        lines.append(f"- {g['name']} | slug={g['slug']} | gym_id={g['id']}")
+    return "\n".join(lines)
+
+
+@tool
+def selecionar_academia(
+    run_context: RunContext,
+    slug: str = "",
+    gym_id: str = "",
+) -> str:
+    """
+    Define qual academia atender nesta conversa (consulta o banco).
+    Informe slug (ex: piloto) ou gym_id (UUID).
+    """
+    log_tool("selecionar_academia", slug=slug, gym_id=gym_id)
+    state = _ctx(run_context)
+    try:
+        resolved = services.resolve_session_gym_id(
+            gym_id=gym_id.strip() or None,
+            slug=slug.strip() or None,
+        )
+    except RuntimeError as exc:
+        return str(exc)
+
+    gym = services.get_gym_by_id(resolved)
+    state["gym_id"] = resolved
+    return f"Academia ativa: {gym.get('name') if gym else resolved} (gym_id={resolved}). Pode consultar planos e horários."
 
 
 @tool
@@ -44,11 +92,9 @@ def listar_horarios(
     modality: ex funcional, musculação (opcional)
     date_iso: data AAAA-MM-DD no fuso de São Paulo (opcional; omita para ver próximos horários)
     """
-    state = _ctx(run_context)
-    try:
-        gym_id = _gym_id_from_ctx(run_context)
-    except RuntimeError as exc:
-        return str(exc)
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     log_tool("listar_horarios", gym_id=gym_id, modality=modality, date=date_iso)
     day = date.fromisoformat(date_iso) if date_iso else None
     mod = modality.strip() or None
@@ -85,10 +131,9 @@ def listar_horarios(
 @tool
 def listar_planos(run_context: RunContext) -> str:
     """Lista planos ativos com preços oficiais da academia."""
-    try:
-        gym_id = _gym_id_from_ctx(run_context)
-    except RuntimeError as exc:
-        return str(exc)
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     log_tool("listar_planos", gym_id=gym_id)
     plans = services.list_plans(gym_id)
     if not plans:
@@ -107,10 +152,9 @@ def criar_reserva(run_context: RunContext, slot_id: str) -> str:
     slot_id: UUID obtido em listar_horarios.
     """
     state = _ctx(run_context)
-    try:
-        gym_id = _gym_id_from_ctx(run_context)
-    except RuntimeError as exc:
-        return str(exc)
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     member_id = state["member_id"]
     wa_chatid = state["wa_chatid"]
     log_tool("criar_reserva", gym_id=gym_id, slot_id=slot_id)
@@ -163,10 +207,9 @@ def atualizar_lead_crm(
     open_ticket: True para passar para humano
     """
     state = _ctx(run_context)
-    try:
-        gym_id = _gym_id_from_ctx(run_context)
-    except RuntimeError as exc:
-        return str(exc)
+    gym_id, err = _gym_id_from_ctx(run_context)
+    if err:
+        return err
     member_id = state["member_id"]
     wa_chatid = state["wa_chatid"]
     log_tool(
@@ -213,6 +256,8 @@ def atualizar_lead_crm(
 
 
 FIT_TOOLS = [
+    listar_academias,
+    selecionar_academia,
     listar_horarios,
     listar_planos,
     criar_reserva,

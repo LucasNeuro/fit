@@ -65,10 +65,12 @@ def create_recepcionista_agent(
     """Cria instância Agno configurada para uma conversa."""
     settings = get_settings()
     gym = None
-    if settings.supabase_configured:
+    if settings.supabase_configured and gym_id:
         try:
-            gym_id = services.resolve_gym_id(gym_id)
+            gym_id = services.resolve_session_gym_id(gym_id=gym_id)
             gym = services.get_gym_by_id(gym_id)
+        except (services.GymContextRequired, RuntimeError):
+            pass
         except Exception:
             pass
 
@@ -112,16 +114,16 @@ def create_recepcionista_agent(
 def create_os_demo_agent() -> Agent:
     """
     Agente para testar no AgentOS (UI Agno).
-    Resolve academia via Supabase (DEFAULT_GYM_ID ou slug piloto).
+    Academia vem do Supabase (única cadastrada ou tool selecionar_academia).
     """
     settings = get_settings()
-    gym_id = settings.default_gym_id
+    gym_id = ""
     member_id = OS_DEMO_USER
     wa_chatid = OS_DEMO_CHAT
 
     if settings.supabase_configured:
         try:
-            gym_id = services.resolve_gym_id(settings.default_gym_id)
+            gym_id = services.resolve_session_gym_id()
             member = services.get_or_create_member(
                 gym_id,
                 phone="5511999999999",
@@ -129,15 +131,19 @@ def create_os_demo_agent() -> Agent:
                 name="Cliente Demo OS",
             )
             member_id = member["id"]
+        except services.GymContextRequired:
+            pass
         except Exception as exc:
             import logging
 
             logging.getLogger("fit.agent").warning("Supabase demo: %s", exc)
+
+    sid = f"{OS_DEMO_SESSION_PREFIX}:{gym_id[:8]}" if gym_id else f"{OS_DEMO_SESSION_PREFIX}:multi"
 
     return create_recepcionista_agent(
         gym_id=gym_id,
         member_id=member_id,
         wa_chatid=wa_chatid,
         agent_id="fit-recepcionista",
-        session_id=f"{OS_DEMO_SESSION_PREFIX}:{gym_id[:8]}",
+        session_id=sid,
     )

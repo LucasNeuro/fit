@@ -27,35 +27,45 @@ def get_gym_by_slug(slug: str) -> dict[str, Any] | None:
     return res.data if res else None
 
 
-def resolve_gym_id(preferred_id: str | None = None, slug: str | None = None) -> str:
+class GymContextRequired(Exception):
+    """Várias academias — agente deve chamar selecionar_academia."""
+
+
+def list_gyms() -> list[dict[str, Any]]:
+    sb = get_supabase()
+    res = sb.table("gyms").select("id, name, slug, phone_whatsapp").order("name").execute()
+    return res.data or []
+
+
+def resolve_session_gym_id(
+    *,
+    gym_id: str | None = None,
+    slug: str | None = None,
+) -> str:
     """
-    Resolve gym_id para AgentOS/dev: tenta UUID do .env, depois slug (piloto).
+    Resolve academia só pelo Supabase (sessão, slug ou única academia cadastrada).
+    Não usa variáveis de ambiente.
     """
-    from core.config import get_settings
+    gid = (gym_id or "").strip()
+    if gid and get_gym_by_id(gid):
+        return gid
 
-    settings = get_settings()
-    candidates: list[str] = []
-    if preferred_id:
-        candidates.append(preferred_id.strip())
-    if settings.default_gym_id:
-        candidates.append(settings.default_gym_id.strip())
+    slug_clean = (slug or "").strip()
+    if slug_clean:
+        gym = get_gym_by_slug(slug_clean)
+        if gym:
+            return gym["id"]
+        raise RuntimeError(f"Academia com slug '{slug_clean}' não encontrada.")
 
-    seen: set[str] = set()
-    for gid in candidates:
-        if not gid or gid in seen:
-            continue
-        seen.add(gid)
-        if get_gym_by_id(gid):
-            return gid
+    gyms = list_gyms()
+    if not gyms:
+        raise RuntimeError("Nenhuma academia no banco. Rode supabase/seed_piloto_completo.sql.")
+    if len(gyms) == 1:
+        return gyms[0]["id"]
 
-    fallback_slug = (slug or settings.default_gym_slug or "piloto").strip()
-    gym = get_gym_by_slug(fallback_slug)
-    if gym:
-        return gym["id"]
-
-    raise RuntimeError(
-        f"Academia não encontrada no Supabase. "
-        f"Rode seed_piloto_completo.sql e defina DEFAULT_GYM_ID ou DEFAULT_GYM_SLUG={fallback_slug!r}."
+    raise GymContextRequired(
+        "Existem várias academias. Use listar_academias e selecionar_academia(slug=...) "
+        "antes de planos, horários ou reservas."
     )
 
 
